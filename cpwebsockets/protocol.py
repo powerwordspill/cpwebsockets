@@ -62,27 +62,49 @@ class ConnectionClosed(Exception):
 
 
 def urlparse(uri):
-    """Parse ws:// URLs"""
-    match = URL_RE.match(uri)
-    if match:
-        protocol = match.group(1)
-        host = match.group(2)
-        port = match.group(3)
-        path = match.group(4)
+    """Parse ws:// or wss:// URLs without regex (avoids recursion issues)."""
+    if not uri:
+        raise ValueError("URL invalid. Format: ws[s]://server:port/[path]")
 
-        if protocol == "wss":
-            if port is None:
-                port = 443
-        elif protocol == "ws":
-            if port is None:
-                port = 80
-        else:
-            raise ValueError("Scheme {} is invalid".format(protocol))
+    if uri.startswith("wss://"):
+        protocol = "wss"
+        rest = uri[6:]  # after "wss://"
+        default_port = 443
+    elif uri.startswith("ws://"):
+        protocol = "ws"
+        rest = uri[5:]  # after "ws://"
+        default_port = 80
+    else:
+        raise ValueError("URL invalid. Format: ws[s]://server:port/[path]")
 
-        return URI(protocol, host, int(port), path)
+    # Split host[:port] and path(+query)
+    slash = rest.find("/")
+    if slash == -1:
+        hostport = rest
+        path = "/"
+    else:
+        hostport = rest[:slash]
+        path = rest[slash:] or "/"
 
-    raise ValueError("URL invalid. Format: ws[s]://server:port/[path]")
+    if not hostport:
+        raise ValueError("URL invalid. Missing host")
 
+    # Parse optional :port
+    colon = hostport.rfind(":")
+    if colon != -1:
+        hostname = hostport[:colon]
+        port_text = hostport[colon + 1 :]
+        if not hostname:
+            raise ValueError("URL invalid. Missing host")
+        try:
+            port = int(port_text)
+        except Exception:
+            raise ValueError("URL invalid. Bad port")
+    else:
+        hostname = hostport
+        port = default_port
+
+    return URI(protocol, hostname, port, path)
 
 class Websocket:
     """
